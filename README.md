@@ -16,7 +16,7 @@ with the box's address on the venue network:
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((irm https://raw.githubusercontent.com/thezigpc/VenueboxDesktopClient/main/scripts/install-venuebox.ps1))) -Box 192.168.1.20 -KeepAwake
 ```
 
-It turns on TLS 1.2, downloads the latest installer from Releases, installs it to `C:VenueboxDesktopClient` (`-InstallDir` to change), checks the
+It turns on TLS 1.2, downloads the latest installer from Releases, installs it to `C:\VenueboxDesktopClient` (`-InstallDir` to change), checks the
 box answers, and starts Venuebox. Each screen then shows a 6-digit code: on the box, open the
 TVs page → Venuebox apps and type it. `-KeepAwake` keeps a laptop on with the lid closed
 while it's plugged in. With an installer copied over by hand:
