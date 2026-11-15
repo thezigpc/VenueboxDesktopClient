@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'">
+<title>Venuebox</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #e8e8ea; overflow: hidden; cursor: none; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; }
+  main { text-align: center; max-width: 80vw; }
+  h1 { font-weight: 600; font-size: 4.2vh; margin: 0 0 2vh; letter-spacing: 0.02em; }
+  .code { font-variant-numeric: tabular-nums; font-size: 16vh; font-weight: 700; letter-spacing: 0.12em; color: #f5a82b; margin: 2vh 0 3vh; }
+  p { font-size: 2.6vh; color: #a0a3ab; margin: 0; line-height: 1.4; }
+  footer { position: fixed; bottom: 3vh; left: 0; right: 0; text-align: center; font-size: 1.8vh; color: #50535b; }
+  [hidden] { display: none; }
+</style>
+</head>
+<body>
+<main id="m" hidden>
+  <h1 id="title"></h1>
+  <div class="code" id="code" hidden></div>
+  <p id="detail"></p>
+</main>
+<footer id="foot" hidden>Venuebox</footer>
+<script src="status.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'">
+<title>Identify</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; cursor: none; }
+  body { display: flex; align-items: center; justify-content: center; font-family: "Segoe UI", system-ui, -apple-system, sans-serif; }
+  div { background: rgba(10, 10, 14, 0.88); color: #fff; border: 1vh solid #f5a82b; border-radius: 3vh; padding: 5vh 8vh; font-size: 9vh; font-weight: 700; text-align: center; max-width: 80vw; animation: pulse 1s ease-in-out infinite alternate; }
+  @keyframes pulse { from { border-color: #f5a82b; } to { border-color: #fff3d6; } }
+</style>
+</head>
+<body><div id="l"></div><script src="identify.js"></script></body>
+</html>
