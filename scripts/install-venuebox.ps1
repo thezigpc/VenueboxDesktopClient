@@ -7,7 +7,10 @@
      can't reach GitHub without it). Nothing system-wide changes.
   2. Gets the installer: -InstallerPath (a file you copied over), or the latest GitHub release.
      The installer is a self-contained .exe: no Git, Node or other runtime is needed.
-  3. Closes a running Venuebox, installs silently for the current user (no admin needed).
+  3. Closes a running Venuebox, installs silently for the current user into -InstallDir
+     (default C:\VenueboxDesktopClient; no admin needed). A copy installed somewhere else
+     (e.g. the old default under %LOCALAPPDATA%\Programs) is uninstalled first; the pairing
+     and settings in %APPDATA%\Venuebox are kept.
   4. Checks the box answers on port 7210, then starts Venuebox with that box address.
      The screen shows a 6-digit code: type it on the box's TVs page -> Venuebox apps.
   5. Optional (-KeepAwake): a laptop driving a TV stays on with the lid closed while plugged in.
@@ -32,6 +35,8 @@ param(
   [string]$Repo = "thezigpc/VenueboxDesktopClient",
   # Only for a private repository: a GitHub token with read access to it.
   [string]$GitHubToken,
+  # Where the app goes. A per-user install: no admin needed (Windows lets users create C:\ folders).
+  [string]$InstallDir = "C:\VenueboxDesktopClient",
   # Laptop: don't sleep, and do nothing when the lid closes, while on AC power.
   [switch]$KeepAwake
 )
@@ -79,20 +84,27 @@ Step "Closing Venuebox if it's running"
 Get-Process -Name "Venuebox" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 
-Step "Installing (current user, silent)"
-$p = Start-Process -FilePath $installer -ArgumentList "/S" -Wait -PassThru
+$InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+# An existing install elsewhere: remove it so there's one copy (settings/pairing are kept).
+$old = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue |
+  Get-ItemProperty | Where-Object { $_.DisplayName -like "Venuebox*" -and $_.QuietUninstallString } | Select-Object -First 1
+if ($old -and $old.QuietUninstallString -match '^"([^"]+)"') {
+  $oldUninstaller = $Matches[1]
+  $oldDir = Split-Path $oldUninstaller -Parent
+  if ($oldDir.TrimEnd('\') -ne $InstallDir -and (Test-Path $oldUninstaller)) {
+    Step "Removing the copy installed in $oldDir"
+    Start-Process -FilePath $oldUninstaller -ArgumentList "/currentuser", "/S" -Wait | Out-Null
+    Start-Sleep -Seconds 3
+  }
+}
+
+Step "Installing to $InstallDir (current user, silent)"
+# NSIS: /D= must come last and must not be quoted, even with spaces in the path.
+$p = Start-Process -FilePath $installer -ArgumentList "/S /D=$InstallDir" -Wait -PassThru
 if ($p.ExitCode -ne 0) { throw "The installer failed (exit code $($p.ExitCode))" }
 
-$exe = @(
-  (Join-Path $env:LOCALAPPDATA "Programs\venuebox-desktop-client\Venuebox.exe"),
-  (Join-Path $env:LOCALAPPDATA "Programs\Venuebox\Venuebox.exe")
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $exe) {
-  $key = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue |
-    Get-ItemProperty | Where-Object { $_.DisplayName -like "Venuebox*" } | Select-Object -First 1
-  if ($key -and $key.InstallLocation) { $exe = Join-Path $key.InstallLocation "Venuebox.exe" }
-}
-if (-not $exe -or -not (Test-Path $exe)) { throw "Installed, but Venuebox.exe wasn't found under $env:LOCALAPPDATA\Programs" }
+$exe = Join-Path $InstallDir "Venuebox.exe"
+if (-not (Test-Path $exe)) { throw "Installed, but $exe isn't there" }
 Ok "Installed: $exe"
 # The installer may have started it; restart below with the box address.
 Start-Sleep -Seconds 2
