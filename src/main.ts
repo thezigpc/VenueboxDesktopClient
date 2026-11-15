@@ -14,6 +14,7 @@ import { browse, reachable, relocate, type FoundBox } from "./discovery";
 import type { BoxMsg } from "./protocol";
 import { ScreenManager, type StatusView } from "./screens";
 import { Store } from "./store";
+import { Updater, type UpdateState } from "./updater";
 
 const STATIC = join(__dirname, "..", "..", "static");
 const windowed = process.argv.includes("--windowed");
@@ -55,6 +56,7 @@ let screens: ScreenManager;
 let client: BoxClient;
 let settingsWin: BrowserWindow | undefined;
 let tray: Tray | undefined;
+let updater: Updater;
 
 const platformName = () => ({ win32: "windows", darwin: "macos", linux: "linux" })[process.platform as string] ?? process.platform;
 
@@ -107,6 +109,16 @@ async function start() {
   screen.on("display-added", displaysChanged);
   screen.on("display-removed", displaysChanged);
   screen.on("display-metrics-changed", displaysChanged);
+
+  updater = new Updater({
+    log,
+    onChange: () => {
+      updateTray(client.current);
+      pushState();
+    },
+    prompt: () => openSettings(), // the settings window shows the update banner, above the TVs
+  });
+  updater.start();
 
   powerSaveBlocker.start("prevent-display-sleep");
   setupTray();
@@ -272,6 +284,7 @@ function snapshot() {
     paired: Boolean(store.get()),
     startAtLogin: getStartAtLogin(),
     screens: screens.view(),
+    update: updater?.state ?? ({ phase: "dev" } as UpdateState),
     searching,
     found: found.map((b) => ({ id: b.id, name: b.name, addresses: b.addresses, url: b.url, current: b.id === store.config.boxId })),
   };
@@ -321,6 +334,15 @@ function setupIpc() {
     if (changed) store.clear();
     client.restart();
     return { ok: true };
+  });
+  ipcMain.handle("update:check", async () => {
+    await updater.check();
+    return snapshot();
+  });
+  ipcMain.handle("update:install", () => updater.install());
+  ipcMain.handle("update:later", () => {
+    updater.later();
+    settingsWin?.close();
   });
   ipcMain.handle("discover", async () => {
     await search();
@@ -389,6 +411,9 @@ function updateTray(s: ClientStatus) {
       { label: text, enabled: false },
       { type: "separator" },
       { label: "Settings…", click: openSettings },
+      updater?.state.phase === "ready"
+        ? { label: `Install update ${updater.state.version}…`, click: openSettings }
+        : { label: "Check for updates", enabled: app.isPackaged, click: () => void updater?.check().then(() => openSettings()) },
       { label: "Quit Venuebox", click: () => app.quit() },
     ]),
   );

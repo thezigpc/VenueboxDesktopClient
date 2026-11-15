@@ -1,7 +1,7 @@
 {
   "name": "venuebox-desktop-client",
   "productName": "Venuebox",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Turns a PC into a Venuebox display player: one TV per screen, paired with a Bar Games box.",
   "private": true,
   "main": "dist/src/main.js",
@@ -16,6 +16,7 @@
     "dist:mac": "tsc -p . && electron-builder --mac"
   },
   "dependencies": {
+    "electron-updater": "6.8.11",
     "ws": "8.22.1"
   },
   "devDependencies": {
@@ -55,6 +56,13 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.entertainment"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "thezigpc",
+        "repo": "VenueboxDesktopClient"
+      }
+    ]
   }
 }

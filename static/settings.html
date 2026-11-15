@@ -31,12 +31,23 @@
   .screen .meta { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px; }
   .check { display: flex; gap: 8px; align-items: center; color: var(--text); font-size: 14px; margin: 0; }
   .foot { display: flex; justify-content: space-between; align-items: center; color: var(--dim); font-size: 12px; }
+  .banner { border-color: var(--accent); background: #2a2110; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
   <h1>Venuebox</h1>
   <div class="sub">Each screen on this computer is a TV on the box. <span id="ver"></span></div>
+
+  <section id="updBanner" class="banner" hidden>
+    <div><b id="updTitle"></b></div>
+    <div class="msg" id="updNotes"></div>
+    <div class="msg">Installing restarts Venuebox: the TVs go blank for about 20 seconds, then come back by themselves.</div>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="updInstall">Install now</button>
+      <button id="updLater">Later</button>
+    </div>
+  </section>
 
   <section>
     <h2>Status</h2>
@@ -76,6 +87,14 @@
   <section>
     <h2>Screens</h2>
     <div id="screens"></div>
+  </section>
+
+  <section>
+    <h2>Updates</h2>
+    <div class="row">
+      <div style="flex:1" id="updStatus">…</div>
+      <button id="updCheck">Check now</button>
+    </div>
   </section>
 
   <section>

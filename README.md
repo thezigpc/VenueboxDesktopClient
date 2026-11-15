@@ -23,6 +23,17 @@ TVs page → Venuebox apps and type it. `-KeepAwake` keeps a laptop on with the 
 while it's plugged in. With an installer copied over by hand:
 `powershell -ExecutionPolicy Bypass -File install-venuebox.ps1 -InstallerPath .\Venuebox-Setup-0.2.0.exe -Box 192.168.1.20`.
 
+**Updates:** from 0.3.0 on, Venuebox checks GitHub Releases at start and every 4 hours,
+downloads new versions in the background and asks in its settings window before
+installing (the TVs go blank for about 20 seconds while it restarts). "Later" asks again the
+next day. Older copies (0.1.x, 0.2.x) update with:
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((irm https://raw.githubusercontent.com/thezigpc/VenueboxDesktopClient/main/scripts/update-venuebox.ps1)))
+```
+
+It keeps the box, the pairing and the settings.
+
 The installer isn't code-signed yet: Windows may show a SmartScreen prompt (More info →
 Run anyway) the first time.
 
@@ -57,5 +68,7 @@ connected.
 
 ## Build installers
 
-`npm run dist:win` (NSIS), `npm run dist:linux` (AppImage + deb), `npm run dist:mac` (needs
+Release: bump `version` in package.json, `npm run dist:win`, then
+`gh release create vX.Y.Z release/Venuebox-Setup-X.Y.Z.exe release/Venuebox-Setup-X.Y.Z.exe.blockmap release/latest.yml`
+(`latest.yml` is what installed copies check). `npm run dist:win` (NSIS), `npm run dist:linux` (AppImage + deb), `npm run dist:mac` (needs
 macOS). No app icon or code signing yet.

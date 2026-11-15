@@ -34,6 +34,25 @@ function render(s) {
   $("login").checked = s.startAtLogin;
   $("unpair").disabled = !s.paired;
 
+  const u = s.update || { phase: "dev" };
+  const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
+  const updText = {
+    dev: "Development copy: no automatic updates.",
+    idle: "Checks for updates automatically.",
+    checking: "Checking…",
+    current: `Up to date (checked ${when(u.checkedAt)}).`,
+    downloading: `Downloading ${u.version}… ${u.percent || 0}%`,
+    ready: `Version ${u.version} is ready to install.`,
+    error: `Couldn't check for updates: ${u.error} (${when(u.checkedAt)}).`,
+  };
+  $("updStatus").textContent = updText[u.phase] || u.phase;
+  $("updCheck").disabled = ["dev", "checking", "downloading", "ready"].includes(u.phase);
+  $("updBanner").hidden = u.phase !== "ready";
+  if (u.phase === "ready") {
+    $("updTitle").textContent = `Venuebox ${u.version} is ready (you have ${s.version}).`;
+    $("updNotes").textContent = u.notes || "";
+  }
+
   const boxes = $("found");
   boxes.textContent = "";
   for (const b of s.found || []) {
@@ -85,6 +104,14 @@ function render(s) {
     list.append(row);
   }
 }
+
+$("updCheck").onclick = async () => render(await api.checkUpdate());
+$("updInstall").onclick = () => {
+  $("updInstall").disabled = true;
+  $("updInstall").textContent = "Restarting…";
+  api.installUpdate();
+};
+$("updLater").onclick = () => api.updateLater();
 
 $("search").onclick = async () => {
   msg($("foundMsg"), "");
