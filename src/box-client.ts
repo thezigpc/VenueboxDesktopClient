@@ -27,6 +27,11 @@ export interface BoxClientDeps {
   onStatus: (s: ClientStatus) => void;
   onMessage: (m: BoxMsg) => void;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
+  /**
+   * The box stopped answering at `box`: where is it now? (Discovery by box id; the token
+   * still works there.) Returns the new box URL, or undefined to keep trying `box`.
+   */
+  relocate?: (box: string) => Promise<string | undefined>;
   /** Overrides for tests. */
   timing?: Partial<Timing>;
 }
@@ -41,6 +46,8 @@ interface Timing {
   /** After a 4400 (protocol mismatch: the box needs a newer app). */
   protocolRetryMs: number;
   requestTimeoutMs: number;
+  /** At most one relocate (a ~2 s LAN browse) this often. */
+  relocateEveryMs: number;
 }
 
 const DEFAULT_TIMING: Timing = {
@@ -50,6 +57,7 @@ const DEFAULT_TIMING: Timing = {
   replacedRetryMs: 5 * 60_000,
   protocolRetryMs: 10 * 60_000,
   requestTimeoutMs: 6000,
+  relocateEveryMs: 30_000,
 };
 
 /** "192.168.1.20" → "http://192.168.1.20:7210"; keeps an explicit scheme/port; drops any path. */
@@ -102,6 +110,7 @@ export class BoxClient {
   private wakers = new Set<() => void>();
   private readonly t: Timing;
   private status: ClientStatus = { phase: "no-box" };
+  private lastRelocate = 0;
 
   constructor(private readonly d: BoxClientDeps) {
     this.t = { ...DEFAULT_TIMING, ...d.timing };
@@ -176,14 +185,16 @@ export class BoxClient {
   }
 
   private async run(gen: number): Promise<void> {
-    const box = normalizeBox(this.d.boxUrl());
+    let box = normalizeBox(this.d.boxUrl());
     if (!box) return this.setStatus({ phase: "no-box" });
+    this.lastRelocate = 0;
     let attempt = 0;
     while (this.alive(gen)) {
       let token = this.d.token.get();
       if (!token) {
-        token = await this.pair(gen, box);
-        if (!token || !this.alive(gen)) return;
+        const paired = await this.pair(gen, box);
+        if (!paired || !this.alive(gen)) return;
+        ({ token, box } = paired);
         attempt = 0;
       }
       this.setStatus({ phase: "connecting", box, attempt, error: this.status.phase === "connecting" ? this.status.error : undefined });
@@ -203,6 +214,16 @@ export class BoxClient {
         continue;
       }
       if (r.welcomed) attempt = 0;
+      else if (r.code === 1006 || r.code === 1005) {
+        // Never reached the box (or it vanished mid-handshake): it may have a new address.
+        const moved = await this.tryRelocate(gen, box);
+        if (!this.alive(gen)) return;
+        if (moved) {
+          box = moved;
+          attempt = 0;
+          continue;
+        }
+      }
       const error = r.code === CLOSE.protocol ? `the box refused this app version (${r.reason || "protocol"})` : r.error ?? (r.welcomed ? "connection lost" : `closed (${r.code})`);
       this.setStatus({ phase: "connecting", box, attempt: attempt + 1, error });
       const wait = r.code === CLOSE.protocol ? this.t.protocolRetryMs : this.backoff(attempt);
@@ -224,8 +245,23 @@ export class BoxClient {
     return { status: res.status, body };
   }
 
+  /** The box at `box` didn't answer: ask relocate (rate-limited) for a new address. */
+  private async tryRelocate(gen: number, box: string): Promise<string | undefined> {
+    if (!this.d.relocate || Date.now() - this.lastRelocate < this.t.relocateEveryMs) return undefined;
+    this.lastRelocate = Date.now();
+    let found: string | undefined;
+    try {
+      found = normalizeBox(await this.d.relocate(box));
+    } catch (err) {
+      this.log("relocate failed", { error: String(err) });
+    }
+    if (!this.alive(gen) || !found || found === box) return undefined;
+    this.log("the box moved: reconnecting at its new address", { from: box, to: found });
+    return found;
+  }
+
   /** Shows codes until staff approve one; returns the token (or undefined if cancelled). */
-  private async pair(gen: number, box: string): Promise<string | undefined> {
+  private async pair(gen: number, box: string): Promise<{ token: string; box: string } | undefined> {
     let attempt = 0;
     while (this.alive(gen)) {
       const screens = this.d.screens();
@@ -242,6 +278,12 @@ export class BoxClient {
         });
       } catch (err) {
         if (!this.alive(gen)) return;
+        const moved = await this.tryRelocate(gen, box);
+        if (!this.alive(gen)) return;
+        if (moved) {
+          box = moved;
+          continue;
+        }
         this.setStatus({ phase: "unreachable", box, error: describe(err) });
         if (!(await this.sleep(this.backoff(attempt++), gen))) return;
         continue;
@@ -271,7 +313,7 @@ export class BoxClient {
         if (st.status === 200 && st.body.status === "approved" && st.body.token) {
           this.d.token.set(st.body.token);
           this.log("paired", { deviceId: st.body.deviceId });
-          return st.body.token;
+          return { token: st.body.token, box };
         }
       }
     }

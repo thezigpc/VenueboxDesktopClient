@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("venuebox", {
   onState: (fn: (s: unknown) => void) => ipcRenderer.on("state", (_e, s) => fn(s)),
   testBox: (address: string) => ipcRenderer.invoke("box:test", address),
   setBox: (address: string) => ipcRenderer.invoke("box:set", address),
+  discover: () => ipcRenderer.invoke("discover"),
+  chooseBox: (id: string) => ipcRenderer.invoke("box:choose", id),
   setName: (name: string) => ipcRenderer.invoke("name:set", name),
   unpair: () => ipcRenderer.invoke("unpair"),
   setStartAtLogin: (on: boolean) => ipcRenderer.invoke("login:set", on),

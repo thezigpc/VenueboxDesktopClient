@@ -34,6 +34,36 @@ function render(s) {
   $("login").checked = s.startAtLogin;
   $("unpair").disabled = !s.paired;
 
+  const boxes = $("found");
+  boxes.textContent = "";
+  for (const b of s.found || []) {
+    const row = document.createElement("div");
+    row.className = "screen";
+    const left = document.createElement("div");
+    const name = document.createElement("div");
+    name.textContent = b.name + (b.current ? " (this computer's box)" : "");
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = b.url ? b.url.replace(/^http:\/\//, "") : `${b.addresses.join(", ")}: not answering`;
+    left.append(name, meta);
+    const btn = document.createElement("button");
+    btn.textContent = b.current ? "In use" : "Use";
+    btn.disabled = b.current || !b.url;
+    btn.onclick = async () => {
+      const r = await api.chooseBox(b.id);
+      msg($("foundMsg"), r.ok ? `Using ${b.name}.` : r.error, r.ok ? "ok" : "bad");
+    };
+    row.append(left, btn);
+    boxes.append(row);
+  }
+  if (!(s.found || []).length) {
+    const none = document.createElement("div");
+    none.className = "msg";
+    none.textContent = s.searching ? "Searching…" : "None found. Networks that keep devices apart (guest Wi-Fi) hide the box: type its address below.";
+    boxes.append(none);
+  }
+  $("search").disabled = s.searching;
+
   const list = $("screens");
   list.textContent = "";
   for (const sc of s.screens) {
@@ -56,6 +86,10 @@ function render(s) {
   }
 }
 
+$("search").onclick = async () => {
+  msg($("foundMsg"), "");
+  render(await api.discover());
+};
 $("box").addEventListener("input", () => (typed = true));
 $("name").addEventListener("input", () => (typed = true));
 

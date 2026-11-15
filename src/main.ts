@@ -10,6 +10,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { getStartAtLogin, setStartAtLogin } from "./autostart";
 import { BoxClient, checkBox, normalizeBox, type ClientStatus } from "./box-client";
+import { browse, reachable, relocate, type FoundBox } from "./discovery";
 import type { BoxMsg } from "./protocol";
 import { ScreenManager, type StatusView } from "./screens";
 import { Store } from "./store";
@@ -63,7 +64,7 @@ async function start() {
   Menu.setApplicationMenu(null);
   store = new Store(log);
   await store.load();
-  if (boxArg !== undefined) store.update({ box: boxArg });
+  if (boxArg !== undefined && normalizeBox(boxArg) !== normalizeBox(store.config.box)) store.update({ box: boxArg, boxId: undefined, boxName: undefined });
   if (store.config.startAtLogin === undefined) {
     // First run of an installed copy: start at login (a venue PC must come back by itself).
     const on = app.isPackaged;
@@ -80,6 +81,14 @@ async function start() {
     onStatus,
     onMessage,
     log,
+    relocate: async () => {
+      const id = store.config.boxId;
+      if (!id) return undefined;
+      const r = await relocate(id);
+      if (!r) return undefined;
+      store.update({ box: r.url, boxName: r.box.name });
+      return r.url;
+    },
   });
 
   screens.sync();
@@ -105,7 +114,78 @@ async function start() {
   setupIpc();
 
   client.restart();
-  if (!normalizeBox(store.config.box) || windowed) openSettings();
+  if (!normalizeBox(store.config.box)) void autoFind();
+  if (windowed) openSettings();
+}
+
+// ---------------------------------------------------------------- discovery
+
+let found: (FoundBox & { url?: string })[] = [];
+let searching = false;
+let findTimer: NodeJS.Timeout | undefined;
+let firstFind = true;
+
+/** Browses the LAN; each box gets the first of its addresses that answers. */
+async function search(): Promise<typeof found> {
+  if (searching) return found;
+  searching = true;
+  refreshNoBox();
+  try {
+    const boxes = await browse();
+    found = await Promise.all(boxes.map(async (b) => ({ ...b, url: await reachable(b) })));
+    log("discovery", { found: found.map((b) => ({ id: b.id, name: b.name, url: b.url ?? "no answer" })) });
+  } catch (err) {
+    log("discovery failed", { error: String(err) });
+  } finally {
+    searching = false;
+    refreshNoBox();
+  }
+  return found;
+}
+
+/** The "no box" screens say searching / several found / none: keep them current. */
+function refreshNoBox() {
+  if (client.current.phase === "no-box") screens.setStatus(statusView(client.current));
+  pushState();
+}
+
+/** No box set: pick it by itself when exactly one answers; otherwise let staff choose. */
+async function autoFind() {
+  if (findTimer) clearTimeout(findTimer);
+  if (normalizeBox(store.config.box)) return;
+  const live = (await search()).filter((b) => b.url);
+  if (normalizeBox(store.config.box)) return; // set by hand meanwhile
+  if (live.length === 1) {
+    log("one box found: using it", { id: live[0].id, name: live[0].name });
+    useFound(live[0]);
+    return;
+  }
+  // Several boxes, or none (client isolation, other network): staff choose or type it.
+  if (live.length > 1 || firstFind) openSettings();
+  firstFind = false;
+  findTimer = setTimeout(() => void autoFind(), 20_000);
+}
+
+function useFound(b: FoundBox & { url?: string }) {
+  if (!b.url) return { ok: false, error: `${b.name} didn't answer at ${b.addresses.join(", ")}.` };
+  // Same box at a new address: the pairing still works. Another box: pair again.
+  if (store.config.boxId !== b.id && normalizeBox(store.config.box) !== b.url) store.clear();
+  store.update({ box: b.url, boxId: b.id, boxName: b.name });
+  client.restart();
+  return { ok: true };
+}
+
+/** A box typed in by hand: learn its discovery id once connected, so it can be re-found. */
+async function learnBoxId() {
+  if (store.config.boxId) return;
+  const current = normalizeBox(store.config.box);
+  if (!current) return;
+  const host = new URL(current).hostname;
+  const box = (await browse()).find((b) => b.addresses.includes(host) || b.host === host.toLowerCase());
+  if (box && normalizeBox(store.config.box) === current) {
+    store.update({ boxId: box.id, boxName: box.name });
+    log("learned the box's discovery id", { id: box.id, name: box.name });
+  }
 }
 
 // Screen windows come and go with displays; the app runs until "Quit" in settings/tray.
@@ -121,6 +201,7 @@ function onMessage(m: BoxMsg) {
   switch (m.type) {
     case "welcome":
       log("connected", { deviceId: m.deviceId, name: m.name });
+      void learnBoxId();
       screens.setLabels(Object.fromEntries(m.screens.map((s) => [s.id, s.label])));
       screens.reportAll();
       break;
@@ -156,7 +237,9 @@ function onMessage(m: BoxMsg) {
 function statusView(s: ClientStatus): StatusView | undefined {
   switch (s.phase) {
     case "no-box":
-      return { title: "Venuebox", detail: "Set the box address in the settings window (Ctrl+Alt+Shift+V)." };
+      if (searching) return { title: "Looking for the box…", detail: "Searching this network." };
+      if (found.filter((b) => b.url).length > 1) return { title: "Several boxes found", detail: "Choose one in the settings window (Ctrl+Alt+Shift+V)." };
+      return { title: "No box found yet", detail: "Still looking. Or type the box address in the settings window (Ctrl+Alt+Shift+V)." };
     case "unreachable":
       return { title: "Can't reach the box", detail: `${s.box}: ${s.error}. Trying again…` };
     case "pairing":
@@ -189,6 +272,8 @@ function snapshot() {
     paired: Boolean(store.get()),
     startAtLogin: getStartAtLogin(),
     screens: screens.view(),
+    searching,
+    found: found.map((b) => ({ id: b.id, name: b.name, addresses: b.addresses, url: b.url, current: b.id === store.config.boxId })),
   };
 }
 
@@ -230,11 +315,22 @@ function setupIpc() {
     const box = normalizeBox(input);
     if (!box) return { ok: false, error: "That isn't an address (try 192.168.1.20)." };
     const changed = normalizeBox(store.config.box) !== box;
-    store.update({ box: input.trim() });
+    // Typed by hand: the discovery id is learned again once connected.
+    store.update({ box: input.trim(), ...(changed ? { boxId: undefined, boxName: undefined } : {}) });
     // A different box: the old pairing means nothing there.
     if (changed) store.clear();
     client.restart();
     return { ok: true };
+  });
+  ipcMain.handle("discover", async () => {
+    await search();
+    return snapshot();
+  });
+  ipcMain.handle("box:choose", async (_e, id: string) => {
+    const b = found.find((x) => x.id === id);
+    if (!b) return { ok: false, error: "That box isn't in the list any more: search again." };
+    const url = await reachable(b);
+    return useFound({ ...b, url });
   });
   ipcMain.handle("name:set", (_e, name: string) => {
     store.update({ name: String(name ?? "").trim().slice(0, 60) || undefined });

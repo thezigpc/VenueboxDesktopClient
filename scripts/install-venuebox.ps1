@@ -27,7 +27,8 @@
 #>
 [CmdletBinding()]
 param(
-  # Box address: "192.168.1.20" (port 7210 is added) or "http://host:port".
+  # Box address: "192.168.1.20" (port 7210 is added) or "http://host:port". Optional: without it,
+  # Venuebox finds the box on the network (box 0.16.2+); use it when discovery is blocked.
   [string]$Box,
   # A local installer .exe; skips the download.
   [string]$InstallerPath,
@@ -127,7 +128,8 @@ if ($Box) {
   }
   $appArgs += "--box=$Box"
 } else {
-  Warn "No -Box given: set the box address in the Venuebox settings window."
+  Ok "No -Box given: Venuebox looks for the box on this network (and uses it if there's exactly one)."
+  Ok "If it isn't found (guest Wi-Fi keeps devices apart), type its address in the settings window."
 }
 
 # ---------------------------------------------------------------- 5. laptop power

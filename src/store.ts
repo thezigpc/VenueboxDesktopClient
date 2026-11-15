@@ -9,6 +9,10 @@ import type { TokenStore } from "./box-client";
 export interface Config {
   /** The box address as typed ("192.168.1.20" or "http://192.168.1.20:7210"). */
   box?: string;
+  /** The box's discovery id (TXT id): finds it again if its address changes. */
+  boxId?: string;
+  /** Venue name from discovery. */
+  boxName?: string;
   /** Name sent when pairing (staff can rename it on the box). Defaults to the computer name. */
   name?: string;
   startAtLogin?: boolean;
