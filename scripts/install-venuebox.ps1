@@ -72,10 +72,27 @@ if ($InstallerPath) {
   if (-not $asset) { throw "Release $($rel.tag_name) has no Setup .exe" }
   $installer = Join-Path $work $asset.name
   Step "Downloading $($asset.name) ($([math]::Round($asset.size / 1MB)) MB, release $($rel.tag_name))"
-  $dl = @{ "User-Agent" = "venuebox-installer"; "Accept" = "application/octet-stream" }
-  if ($GitHubToken) { $dl["Authorization"] = "Bearer $GitHubToken" }
-  # The API asset URL works for private repos too (with a token); it redirects to the file.
-  Invoke-WebRequest -Uri $asset.url -Headers $dl -OutFile $installer -UseBasicParsing
+  Remove-Item $installer -Force -ErrorAction SilentlyContinue
+  # Public repo: the plain download link. Private (token): the API asset URL, which redirects.
+  $url = if ($GitHubToken) { $asset.url } else { $asset.browser_download_url }
+  # curl.exe (in Windows 10 1803+) is ~50x faster than Invoke-WebRequest on PowerShell 5.1.
+  $curl = Join-Path $env:SystemRoot "System32\curl.exe"
+  if (Test-Path $curl) {
+    $cargs = @("-fL", "--retry", "3", "-sS", "-H", "User-Agent: venuebox-installer", "-o", $installer)
+    if ($GitHubToken) { $cargs += @("-H", "Accept: application/octet-stream", "-H", "Authorization: Bearer $GitHubToken") }
+    & $curl @cargs $url
+    if ($LASTEXITCODE -ne 0) { Remove-Item $installer -Force -ErrorAction SilentlyContinue; Warn "curl.exe failed (exit $LASTEXITCODE): trying another way" }
+  }
+  if (-not (Test-Path $installer) -and -not $GitHubToken -and (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)) {
+    try { Start-BitsTransfer -Source $url -Destination $installer -ErrorAction Stop } catch { Warn "BITS failed: $($_.Exception.Message)" }
+  }
+  if (-not (Test-Path $installer)) {
+    $dl = @{ "User-Agent" = "venuebox-installer"; "Accept" = "application/octet-stream" }
+    if ($GitHubToken) { $dl["Authorization"] = "Bearer $GitHubToken" }
+    Invoke-WebRequest -Uri $url -Headers $dl -OutFile $installer -UseBasicParsing
+  }
+  $got = (Get-Item $installer).Length
+  if ($got -ne $asset.size) { throw "The download is incomplete ($got of $($asset.size) bytes). Run this again." }
   Ok "Saved to $installer"
 }
 Unblock-File -Path $installer   # drop the downloaded-from-internet mark (fewer SmartScreen prompts)

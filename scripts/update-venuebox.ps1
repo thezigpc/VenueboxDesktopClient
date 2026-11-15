@@ -47,7 +47,8 @@ if ($installed -ge $latest -and -not $Force) {
 }
 
 Step "Updating $installed -> $latest (the box, pairing and settings are kept)"
-$script = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/$Repo/main/scripts/install-venuebox.ps1" -UseBasicParsing
+# ?t= skips GitHub's 5-minute raw cache, so a just-pushed fix is used at once.
+$script = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/$Repo/main/scripts/install-venuebox.ps1?t=$([DateTime]::UtcNow.Ticks)" -UseBasicParsing
 $params = @{ Repo = $Repo; InstallDir = $InstallDir }
 if ($KeepAwake) { $params.KeepAwake = $true }
 & ([scriptblock]::Create($script)) @params
