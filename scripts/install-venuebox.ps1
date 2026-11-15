@@ -166,5 +166,6 @@ if ($KeepAwake) {
 
 Step "Starting Venuebox"
 if ($appArgs.Count) { Start-Process -FilePath $exe -ArgumentList $appArgs } else { Start-Process -FilePath $exe }
-Ok "Running. Each screen shows a 6-digit code: on the box, TVs page -> Venuebox apps -> type it."
+Ok "Running. Already paired: it reconnects by itself. Not paired yet: each screen shows a 6-digit code;"
+Ok "on the box, open the TVs page -> Venuebox apps and type it."
 Ok "Settings: tray icon, or Ctrl+Alt+Shift+V. Log: $env:APPDATA\Venuebox\venuebox.log"
