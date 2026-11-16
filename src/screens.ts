@@ -4,6 +4,7 @@
 import { BrowserWindow, screen, type Display } from "electron";
 import { join } from "node:path";
 import type { Screen, StateMsg } from "./protocol";
+import { checkShowUrl } from "./urls";
 
 /** What windows that aren't showing a game display. Undefined → plain black. */
 export interface StatusView {
@@ -223,18 +224,14 @@ export class ScreenManager {
   show(id: string, url: string, title?: string): boolean {
     const tv = this.tvs.get(id);
     if (!tv) return false;
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      this.setState(tv, "error", "bad URL from the box");
+    const check = checkShowUrl(url);
+    if (!check.ok) {
+      this.o.log("show refused", { screen: id, url: url.slice(0, 120), reason: check.reason });
+      this.setState(tv, "error", check.reason);
       return false;
     }
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      this.setState(tv, "error", "the box sent a non-web URL");
-      return false;
-    }
-    this.o.log("show", { screen: id, url, title });
+    // data: idle pages can be long: log only their start.
+    this.o.log("show", { screen: id, url: url.length > 200 ? `${url.slice(0, 120)}… (${url.length} chars)` : url, title });
     tv.url = url;
     tv.title = title;
     this.load(tv);
