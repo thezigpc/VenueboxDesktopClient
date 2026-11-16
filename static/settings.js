@@ -97,6 +97,16 @@ function render(s) {
     meta.textContent = `${sc.w}×${sc.h}${sc.hz ? ` @${sc.hz} Hz` : ""} · ${what}${sc.detail ? ` (${sc.detail})` : ""}`;
     meta.title = sc.showing || "";
     left.append(name, meta);
+    if (sc.viewport) {
+      // Pages lay out at 1920x1080 CSS px and render at the panel's pixels.
+      const v = sc.viewport;
+      const vp = document.createElement("div");
+      vp.className = "meta";
+      const m = sc.measured;
+      const off = m && (Math.abs(m.w - v.css.w) > 2 || Math.abs(m.h - v.css.h) > 2);
+      vp.textContent = `Pages ${v.css.w}×${v.css.h}, drawn at ${v.px.w}×${v.px.h} (${v.dpr}×)` + (off ? ` · last page saw ${m.w}×${m.h}` : "");
+      left.append(vp);
+    }
     const btn = document.createElement("button");
     btn.textContent = "Identify";
     btn.onclick = () => api.identify(sc.id);

@@ -5,6 +5,7 @@ import { BrowserWindow, screen, type Display } from "electron";
 import { join } from "node:path";
 import type { Screen, StateMsg } from "./protocol";
 import { checkShowUrl } from "./urls";
+import { viewportFor, type ViewportInfo } from "./viewport";
 
 /** What windows that aren't showing a game display. Undefined → plain black. */
 export interface StatusView {
@@ -28,6 +29,10 @@ interface Tv {
   hang?: NodeJS.Timeout;
   label?: string;
   index: number;
+  /** The zoom applied and what pages should see (1920x1080 CSS at the panel's pixels). */
+  viewport?: ViewportInfo;
+  /** What the last page actually reported (innerWidth/innerHeight/devicePixelRatio). */
+  measured?: { w: number; h: number; dpr: number };
 }
 
 const STATIC = join(__dirname, "..", "..", "static");
@@ -67,7 +72,7 @@ export class ScreenManager {
   view() {
     return this.list().map((s) => {
       const tv = this.tvs.get(s.id);
-      return { ...s, label: tv?.label, showing: tv?.url ?? "", title: tv?.title, state: tv?.state ?? "off", detail: tv?.detail };
+      return { ...s, label: tv?.label, showing: tv?.url ?? "", title: tv?.title, state: tv?.state ?? "off", detail: tv?.detail, viewport: tv?.viewport, measured: tv?.measured };
     });
   }
 
@@ -128,19 +133,32 @@ export class ScreenManager {
         backgroundThrottling: false,
         autoplayPolicy: "no-user-gesture-required",
         spellcheck: false,
+        // Its own session per screen: Chromium keeps zoom per site per session, so two
+        // screens of different sizes showing the same game would otherwise share one zoom.
+        partition: `persist:venuebox-screen-${id}`,
       },
     });
     const tv: Tv = { id, display, win, state: "off", index, local: true };
     const wc = win.webContents;
     wc.setWindowOpenHandler(() => ({ action: "deny" }));
-    wc.on("dom-ready", () => void wc.insertCSS(HIDE_CURSOR).catch(() => {}));
+    wc.on("dom-ready", () => {
+      void wc.insertCSS(HIDE_CURSOR).catch(() => {});
+      this.applyZoom(tv);
+    });
+    // Zoom is kept per site: set it again for each new document, and when the size changes.
+    wc.on("did-navigate", () => this.applyZoom(tv));
+    win.on("resize", () => this.applyZoom(tv));
+    win.on("enter-full-screen", () => this.applyZoom(tv));
     // Loading = a new document in the main frame. Not did-start-loading: TV pages are SPAs whose
     // history.replaceState right after load fires it again with no did-finish-load after.
     wc.on("did-start-navigation", (details) => {
       if (details.isMainFrame && !details.isSameDocument && tv.url && !tv.local) this.setState(tv, "loading");
     });
     wc.on("did-finish-load", () => {
-      if (tv.url && !tv.local) this.setState(tv, "playing");
+      if (tv.url && !tv.local) {
+        this.setState(tv, "playing");
+        void this.measure(tv);
+      }
     });
     wc.on("did-stop-loading", () => {
       // A failed load already switched to the local error page (tv.local).
@@ -195,6 +213,33 @@ export class ScreenManager {
     tv.win.setBounds(tv.display.bounds);
     tv.win.setFullScreen(true);
     tv.win.setAlwaysOnTop(true, "screen-saver");
+    this.applyZoom(tv);
+  }
+
+  /** Lays pages out at 1920x1080 CSS px, rendered at the panel's own pixels (src/viewport.ts). */
+  private applyZoom(tv: Tv) {
+    if (tv.win.isDestroyed()) return;
+    const b = tv.win.getContentBounds();
+    const v = viewportFor(b.width, b.height, tv.display.scaleFactor);
+    const changed = v.zoom !== tv.viewport?.zoom || v.px.w !== tv.viewport?.px.w;
+    tv.viewport = v;
+    tv.win.webContents.setZoomFactor(v.zoom);
+    if (changed) this.o.log("screen viewport", { screen: tv.id, css: `${v.css.w}x${v.css.h}`, zoom: v.zoom, dpr: v.dpr, renderedAt: `${v.px.w}x${v.px.h}` });
+  }
+
+  /** Reads what the page really sees, to confirm the zoom took (logged when it differs). */
+  private async measure(tv: Tv) {
+    try {
+      const m = (await tv.win.webContents.executeJavaScript("({ w: innerWidth, h: innerHeight, dpr: devicePixelRatio })", false)) as { w: number; h: number; dpr: number };
+      tv.measured = { w: m.w, h: m.h, dpr: Math.round(m.dpr * 1000) / 1000 };
+      const v = tv.viewport;
+      if (v && (Math.abs(m.w - v.css.w) > 2 || Math.abs(m.h - v.css.h) > 2)) {
+        this.o.log("page viewport differs from the 1920x1080 layout", { screen: tv.id, expected: `${v.css.w}x${v.css.h}`, page: `${m.w}x${m.h}@${tv.measured.dpr}` });
+        this.applyZoom(tv);
+      }
+    } catch {
+      /* page navigated away meanwhile */
+    }
   }
 
   private destroy(tv: Tv) {
