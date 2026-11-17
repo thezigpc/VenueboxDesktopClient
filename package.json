@@ -1,7 +1,7 @@
 {
   "name": "venuebox-desktop-client",
   "productName": "Venuebox",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Turns a PC into a Venuebox display player: one TV per screen, paired with a Bar Games box.",
   "private": true,
   "main": "dist/src/main.js",

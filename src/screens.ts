@@ -1,10 +1,10 @@
 // One full-screen window per attached display. Each one is a TV on the box: it shows what the
 // box sends (a TV page URL), or a local status page (pairing code, "connecting…", or black).
 
-import { BrowserWindow, screen, type Display } from "electron";
+import { BrowserWindow, ipcMain, screen, type Display } from "electron";
 import { join } from "node:path";
 import type { Screen, StateMsg } from "./protocol";
-import { checkShowUrl } from "./urls";
+import { checkShowUrl, navigationAllowed } from "./urls";
 import { viewportFor, type ViewportInfo } from "./viewport";
 
 /** What windows that aren't showing a game display. Undefined → plain black. */
@@ -37,22 +37,64 @@ interface Tv {
 
 const STATIC = join(__dirname, "..", "..", "static");
 const HIDE_CURSOR = "*, *::before, *::after { cursor: none !important; }";
+// Touch mode: no pinch zoom (pan only) and no overscroll gestures (swipe back, pull to refresh).
+// touch-action combines down the tree, so elements that ask for "none" (drag games) still get it.
+const TOUCH_CSS = "html, body { touch-action: pan-x pan-y !important; overscroll-behavior: none !important; }";
 const RETRY_MS = 10_000;
 const MAX_PREVIEW_B64 = 270_000; // ≈200 KB of JPEG
 
 export const screenId = (d: Display) => String(d.id);
+const guarded = new WeakSet<Electron.Session>();
 
 export class ScreenManager {
   private readonly tvs = new Map<string, Tv>();
   private status?: StatusView;
+  private touch = false;
+  /** Touch mode's option: GameKit's big on-screen keyboard instead of Windows' touch keyboard. */
+  private bigKeyboard = false;
 
   constructor(
     private readonly o: {
       windowed: boolean;
       report: (m: StateMsg) => void;
       log: (msg: string, extra?: Record<string, unknown>) => void;
+      touchMode?: boolean;
+      bigKeyboard?: boolean;
     },
-  ) {}
+  ) {
+    this.touch = Boolean(o.touchMode);
+    this.bigKeyboard = Boolean(o.bigKeyboard);
+    // The screen preload asks this before each page's scripts run (src/screen-preload.ts).
+    ipcMain.on("venuebox:touch-mode", (e) => {
+      e.returnValue = { touch: this.touch, keyboard: this.touch && this.bigKeyboard };
+    });
+  }
+
+  get touchMode(): boolean {
+    return this.touch;
+  }
+
+  get bigKeyboardOn(): boolean {
+    return this.bigKeyboard;
+  }
+
+  /** Touch mode and its keyboard option; pages reload so they see the change. */
+  setTouchMode(on: boolean, bigKeyboard = this.bigKeyboard) {
+    if (on === this.touch && bigKeyboard === this.bigKeyboard) return;
+    this.touch = on;
+    this.bigKeyboard = bigKeyboard;
+    this.o.log("touch mode", { on, bigKeyboard });
+    for (const tv of this.tvs.values()) {
+      if (tv.win.isDestroyed()) continue;
+      this.applyTouch(tv);
+      tv.win.webContents.reload(); // the keyboard flag is read when a page starts
+    }
+  }
+
+  private applyTouch(tv: Tv) {
+    // Pinch zoom (visual zoom) only; our 1920x1080 layout zoom is separate (applyZoom).
+    void tv.win.webContents.setVisualZoomLevelLimits(1, this.touch ? 1 : 3).catch(() => {});
+  }
 
   /** The screens as the box sees them (pixel size, refresh rate). */
   list(): Screen[] {
@@ -136,13 +178,33 @@ export class ScreenManager {
         // Its own session per screen: Chromium keeps zoom per site per session, so two
         // screens of different sizes showing the same game would otherwise share one zoom.
         partition: `persist:venuebox-screen-${id}`,
+        preload: join(__dirname, "screen-preload.js"),
+        // Run the preload in iframes too (games may be framed); the sandbox keeps Node out.
+        nodeIntegrationInSubFrames: true,
       },
     });
     const tv: Tv = { id, display, win, state: "off", index, local: true };
     const wc = win.webContents;
-    wc.setWindowOpenHandler(() => ({ action: "deny" }));
+    wc.setWindowOpenHandler(() => ({ action: "deny" })); // no pop-ups, touch mode or not
+    this.applyTouch(tv);
+    // Touch mode keeps the screen on the box's pages: no links or scripts leaving the
+    // origin the box showed, no downloads. The box's own show/reload (loadURL) aren't checked.
+    wc.on("will-navigate", (e) => {
+      if (!this.touch || navigationAllowed(tv.url, e.url)) return;
+      e.preventDefault();
+      this.o.log("touch mode: kept the page from leaving", { screen: id, to: e.url.slice(0, 120) });
+    });
+    if (!guarded.has(wc.session)) {
+      guarded.add(wc.session); // a replugged screen reuses its session: one handler each
+      wc.session.on("will-download", (e) => {
+        if (this.touch) e.preventDefault();
+      });
+    }
+    // Ctrl+wheel and the like: put our layout zoom back.
+    wc.on("zoom-changed", () => setTimeout(() => this.applyZoom(tv), 0));
     wc.on("dom-ready", () => {
       void wc.insertCSS(HIDE_CURSOR).catch(() => {});
+      if (this.touch) void wc.insertCSS(TOUCH_CSS).catch(() => {});
       this.applyZoom(tv);
     });
     // Zoom is kept per site: set it again for each new document, and when the size changes.

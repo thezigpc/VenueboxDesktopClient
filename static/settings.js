@@ -32,6 +32,9 @@ function render(s) {
   }
   $("name").placeholder = s.defaultName;
   $("login").checked = s.startAtLogin;
+  $("touch").checked = Boolean(s.touchMode);
+  $("bigKeyboard").checked = Boolean(s.bigKeyboard);
+  $("bigKeyboard").disabled = !s.touchMode;
   $("unpair").disabled = !s.paired;
 
   const u = s.update || { phase: "dev" };
@@ -146,6 +149,8 @@ $("saveName").onclick = async () => {
   msg($("nameMsg"), "Saved. Staff can also rename it on the box.", "ok");
 };
 $("login").onchange = (e) => api.setStartAtLogin(e.target.checked);
+$("touch").onchange = (e) => api.setTouchMode(e.target.checked);
+$("bigKeyboard").onchange = (e) => api.setTouchMode($("touch").checked, e.target.checked);
 $("unpair").onclick = async () => {
   if (!confirm("Unpair this computer? Its screens show a new pairing code, and staff must remove the old entry on the box.")) return;
   await api.unpair();

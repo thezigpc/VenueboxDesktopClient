@@ -27,3 +27,23 @@ export function checkShowUrl(url: unknown): UrlCheck {
   }
   return { ok: false, reason: `the box sent a non-web URL (${parsed.protocol})` };
 }
+
+/**
+ * Touch mode keeps a screen on the box's pages: a page may navigate itself (a link, a form,
+ * location.href) only within the origin of the URL the box showed. data: idle pages may not
+ * navigate anywhere. The box's own `show`/`reload` (loadURL) isn't a page navigation and
+ * isn't checked here.
+ */
+export function navigationAllowed(shownUrl: string | undefined, target: string): boolean {
+  if (!shownUrl) return false;
+  let shown: URL;
+  let next: URL;
+  try {
+    shown = new URL(shownUrl);
+    next = new URL(target);
+  } catch {
+    return false;
+  }
+  if (shown.protocol !== "http:" && shown.protocol !== "https:") return false;
+  return next.origin === shown.origin;
+}

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("venuebox", {
   setName: (name: string) => ipcRenderer.invoke("name:set", name),
   unpair: () => ipcRenderer.invoke("unpair"),
   setStartAtLogin: (on: boolean) => ipcRenderer.invoke("login:set", on),
+  setTouchMode: (on: boolean, bigKeyboard?: boolean) => ipcRenderer.invoke("touch:set", on, bigKeyboard),
   identify: (id: string) => ipcRenderer.invoke("identify", id),
   quit: () => ipcRenderer.invoke("quit"),
 });

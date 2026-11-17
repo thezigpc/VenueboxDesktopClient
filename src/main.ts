@@ -28,6 +28,8 @@ app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+// No swipe-to-go-back on touchscreens: the box decides what a screen shows.
+app.commandLine.appendSwitch("overscroll-history-navigation", "0");
 
 // ---------------------------------------------------------------- log
 
@@ -74,7 +76,7 @@ async function start() {
     if (on) setStartAtLogin(true);
   }
 
-  screens = new ScreenManager({ windowed, log, report: (m) => client?.send(m) });
+  screens = new ScreenManager({ windowed, log, report: (m) => client?.send(m), touchMode: store.config.touchMode === true, bigKeyboard: store.config.bigKeyboard === true });
   client = new BoxClient({
     boxUrl: () => store.config.box,
     token: store,
@@ -283,6 +285,8 @@ function snapshot() {
     defaultName: hostname(),
     paired: Boolean(store.get()),
     startAtLogin: getStartAtLogin(),
+    touchMode: screens.touchMode,
+    bigKeyboard: screens.bigKeyboardOn,
     screens: screens.view(),
     update: updater?.state ?? ({ phase: "dev" } as UpdateState),
     searching,
@@ -367,6 +371,13 @@ function setupIpc() {
   ipcMain.handle("login:set", (_e, on: boolean) => {
     setStartAtLogin(Boolean(on));
     store.update({ startAtLogin: Boolean(on) });
+    return { ok: true };
+  });
+  ipcMain.handle("touch:set", (_e, on: boolean, bigKeyboard?: boolean) => {
+    const kb = bigKeyboard === undefined ? store.config.bigKeyboard === true : Boolean(bigKeyboard);
+    store.update({ touchMode: Boolean(on), bigKeyboard: kb });
+    screens.setTouchMode(Boolean(on), kb);
+    pushState();
     return { ok: true };
   });
   ipcMain.handle("identify", (_e, id: string) => screens.identify(String(id)));

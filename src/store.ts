@@ -16,6 +16,10 @@ export interface Config {
   /** Name sent when pairing (staff can rename it on the box). Defaults to the computer name. */
   name?: string;
   startAtLogin?: boolean;
+  /** Touchscreens: shared-screen flag for games, no pinch zoom or swipes, stay on the box's pages. */
+  touchMode?: boolean;
+  /** Touch mode option: GameKit's big on-screen keyboard (PCs that don't show Windows' one). */
+  bigKeyboard?: boolean;
 }
 
 function writeAtomic(file: string, data: string | Buffer) {

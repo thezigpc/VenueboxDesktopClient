@@ -2,7 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkShowUrl } from "../src/urls";
+import { checkShowUrl, navigationAllowed } from "../src/urls";
 
 // The box's own idle pages (GameBroker apps/broker/src/registry.ts and drivers/local/index.ts).
 const PAIRING_IDLE = `data:text/html;charset=utf-8,${encodeURIComponent('<!doctype html><meta charset="utf-8"><title>Pairing</title><body style="background:#101528">Bar TV is connected</body>')}`;
@@ -42,4 +42,23 @@ test("rejects junk", () => {
   assert.equal(checkShowUrl("").ok, false);
   assert.equal(checkShowUrl("not a url").ok, false);
   assert.equal(checkShowUrl(undefined).ok, false);
+});
+
+
+test("touch mode: pages stay on the shown page's origin", () => {
+  const tv = "https://play.example.com/leaderboard/tv";
+  assert.equal(navigationAllowed(tv, "https://play.example.com/bingo/tv?room=2"), true);
+  assert.equal(navigationAllowed(tv, "https://play.example.com/leaderboard/tv#scores"), true);
+  assert.equal(navigationAllowed(tv, "https://evil.example.net/"), false);
+  assert.equal(navigationAllowed(tv, "http://play.example.com/leaderboard/tv"), false); // scheme change
+  assert.equal(navigationAllowed(tv, "https://play.example.com:8443/x"), false); // port change
+  assert.equal(navigationAllowed(tv, "file:///C:/Windows/win.ini"), false);
+  assert.equal(navigationAllowed(tv, "javascript:alert(1)"), false);
+  assert.equal(navigationAllowed("http://192.168.1.20:3000/tv", "http://192.168.1.20:3000/game/tv"), true);
+});
+
+test("touch mode: idle (data:) pages and nothing shown can't navigate", () => {
+  assert.equal(navigationAllowed("data:text/html,<a href='https://x.test'>x</a>", "https://x.test/"), false);
+  assert.equal(navigationAllowed(undefined, "https://play.example.com/"), false);
+  assert.equal(navigationAllowed("https://play.example.com/tv", "not a url"), false);
 });

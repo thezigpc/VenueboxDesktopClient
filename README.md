@@ -66,6 +66,15 @@ Flags and environment:
 Screens with nothing to show display the pairing code / connection status, or black once
 connected.
 
+**Touch mode** (Settings, off by default) is for touchscreens many people use. Pages get
+`window.__BARGAMES_SHARED_SCREEN__ = true` before their scripts run (GameKit: kiosk games
+forget the last person), pinch zoom and swipe navigation are off, pages can't leave the
+origin the box showed, and pop-ups and downloads are blocked. Typing uses the Windows touch
+keyboard. Its option "Use the big on-screen keyboard" also sets
+`window.__BARGAMES_KEYBOARD__ = true` (GameKit's `<OnScreenKeyboard />`), for PCs set not to
+show Windows' keyboard. Touch mode off sets nothing. The flags reach iframes too
+(`src/screen-preload.ts`).
+
 ## Build installers
 
 Release: bump `version` in package.json, `npm run dist:win`, then
