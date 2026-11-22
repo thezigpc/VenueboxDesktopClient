@@ -67,8 +67,11 @@ export class MpvIpc extends EventEmitter {
     }
   }
 
-  /** Sends a command (e.g. ["set_property", "pause", true]); resolves with its data. */
-  command(args: unknown[], timeoutMs = 4000): Promise<unknown> {
+  /**
+   * Sends a command, e.g. ["set_property", "pause", true], or one with named arguments
+   * ({ name: "osd-overlay", id: 1, ... }); resolves with its data.
+   */
+  command(args: unknown[] | Record<string, unknown>, timeoutMs = 4000): Promise<unknown> {
     if (!this.sock || this.closed) return Promise.reject(new Error("the player isn't running"));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {

@@ -54,6 +54,7 @@ export function videoCaps(probe: DecodeProbe, tallestMonitorPx: number, hdrMonit
     maxHeight: fourK ? 2160 : 1080,
     seek: true,
     ranges: hdrMonitor ? ["sdr", "hdr10", "hlg"] : ["sdr"],
+    tracks: true, // box 0.29.0: audio tracks and subtitles (src/video-tracks.ts)
   };
 }
 

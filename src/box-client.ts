@@ -26,6 +26,8 @@ export interface BoxClientDeps {
   screens: () => Screen[];
   /** Box 0.28.0: what this client's video player plays (sent in hello); undefined = none. */
   video?: () => VideoCaps | undefined;
+  /** Box 0.29.0: remote keys it takes as "key" messages (sent in hello). */
+  keys?: () => string[];
   onStatus: (s: ClientStatus) => void;
   onMessage: (m: BoxMsg) => void;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
@@ -341,6 +343,7 @@ export class BoxClient {
       ws.on("open", () => {
         heard();
         const video = this.d.video?.();
+        const keys = this.d.keys?.();
         ws.send(
           JSON.stringify({
             type: "hello",
@@ -350,6 +353,7 @@ export class BoxClient {
             screens: this.d.screens(),
             deliveries: ["native-url"],
             ...(video ? { video } : {}),
+            ...(keys?.length ? { keys } : {}),
           } satisfies ClientMsg),
         );
       });

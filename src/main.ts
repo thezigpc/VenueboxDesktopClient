@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { getStartAtLogin, setStartAtLogin } from "./autostart";
 import { BoxClient, checkBox, normalizeBox, type ClientStatus } from "./box-client";
 import { browse, reachable, relocate, type FoundBox } from "./discovery";
-import type { BoxMsg, VideoCaps } from "./protocol";
+import { REMOTE_KEYS, type BoxMsg, type VideoCaps } from "./protocol";
 import { ScreenManager, type StatusView } from "./screens";
 import { Store } from "./store";
 import { Updater, type UpdateState } from "./updater";
@@ -87,6 +87,8 @@ async function start() {
     device: () => ({ name: store.config.name?.trim() || hostname(), platform: platformName(), model: hostname(), appVersion: app.getVersion() }),
     screens: () => screens.list(),
     video: () => caps,
+    // Box 0.29.0: the TVs page remote. Keys go to the video player while one plays, else the page.
+    keys: () => [...REMOTE_KEYS],
     onStatus,
     onMessage,
     log,
@@ -271,6 +273,12 @@ function onMessage(m: BoxMsg) {
       break;
     case "video":
       void video.handle(m);
+      break;
+    case "key":
+      // Box 0.29.0: the remote on the TVs page. The video player first, else the page.
+      void video.remoteKey(m.screen, m.key).then((used) => {
+        if (!used && !screens.pageKey(m.screen, m.key)) log("remote key not used", { screen: m.screen, key: m.key });
+      });
       break;
     case "show":
       // A new page closes the video player. The same page again (the box re-sends what each

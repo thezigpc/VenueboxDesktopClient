@@ -281,6 +281,32 @@ export class ScreenManager {
 
   // ---------------------------------------------------------------- video player (box 0.28.0)
 
+  /**
+   * Box 0.29.0: a remote key from the box with no video playing: that key in the screen's page.
+   * Back is Escape, Select is Enter; Play/Rev/Fwd are the media keys. VolumeMute mutes the page;
+   * volume up/down only mean something in the video player.
+   */
+  pageKey(id: string, key: string): boolean {
+    const tv = this.tvs.get(id);
+    if (!tv || tv.win.isDestroyed()) return false;
+    const wc = tv.win.webContents;
+    if (key === "VolumeMute") {
+      wc.setAudioMuted(!wc.isAudioMuted());
+      return true;
+    }
+    const map: Record<string, string> = {
+      Up: "Up", Down: "Down", Left: "Left", Right: "Right", Select: "Enter", Back: "Escape", Home: "Home",
+      Play: "MediaPlayPause", Rev: "MediaPreviousTrack", Fwd: "MediaNextTrack",
+    };
+    const keyCode = map[key];
+    if (!keyCode) return false;
+    wc.focus();
+    wc.sendInputEvent({ type: "keyDown", keyCode });
+    if (keyCode === "Enter") wc.sendInputEvent({ type: "char", keyCode: "\r" });
+    wc.sendInputEvent({ type: "keyUp", keyCode });
+    return true;
+  }
+
   /** The URL the box last showed on a screen (the page under a video). */
   currentUrl(id: string): string | undefined {
     return this.tvs.get(id)?.url;

@@ -45,7 +45,32 @@ export interface VideoCaps {
    * and panel): "sdr" "hdr10" "hdr10plus" "hlg" "dovi". Absent: apps guess (SDR to be safe).
    */
   ranges?: string[];
+  /** Box 0.29.0: it takes play's `tracks` and the "audio" / "subtitle" ops. */
+  tracks?: boolean;
 }
+
+/** Box 0.29.0: an audio track or subtitle of the video. A subtitle `url` carries the key: never log it. */
+export interface Track {
+  id: string;
+  label: string;
+  language?: string;
+  /** In the stream: 0-based among tracks of its kind, container order. Absent: not in this stream. */
+  index?: number;
+  url?: string;
+  format?: string;
+  forced?: boolean;
+  default?: boolean;
+}
+export interface Tracks {
+  audio?: Track[];
+  subtitles?: Track[];
+  audioId?: string;
+  subtitleId?: string | null;
+}
+/** Box 0.29.0: asked on the device (its keys or menu) that the player can't do itself: the app does it. */
+export type RemoteAsk = "next" | "previous" | { audio: string } | { subtitle: string | null };
+/** Box 0.29.0: the remote keys a client may declare in hello.keys. */
+export const REMOTE_KEYS = ["Up", "Down", "Left", "Right", "Select", "Back", "Home", "Play", "Rev", "Fwd", "VolumeUp", "VolumeDown", "VolumeMute"] as const;
 
 // ---------------------------------------------------------------- client → box
 
@@ -60,6 +85,8 @@ export interface HelloMsg {
   deliveries: Delivery[];
   /** Box 0.28.0: present when the client plays video links itself. */
   video?: VideoCaps;
+  /** Box 0.29.0: remote keys it takes as "key" messages (from REMOTE_KEYS). */
+  keys?: string[];
 }
 export interface ScreensMsg {
   type: "screens";
@@ -91,6 +118,9 @@ export interface VideoReplyMsg {
   state?: VideoState;
   position?: number;
   duration?: number;
+  /** Box 0.29.0: the track ids on now (subtitle null: off). */
+  audio?: string;
+  subtitle?: string | null;
 }
 export type VideoState = "loading" | "playing" | "paused" | "stopped" | "error";
 /** Box 0.28.0: the player changed by itself (started, ended, failed, keyboard/remote). */
@@ -101,8 +131,17 @@ export interface VideoStateMsg {
   position?: number;
   duration?: number;
   message?: string;
+  /** Box 0.29.0: the track ids on now (subtitle null: off). */
+  audio?: string;
+  subtitle?: string | null;
 }
-export type ClientMsg = HelloMsg | ScreensMsg | StateMsg | PreviewMsg | VideoReplyMsg | VideoStateMsg;
+/** Box 0.29.0: someone asked on the device for something only the app can do (next episode, a track not in this stream). */
+export interface VideoRemoteMsg {
+  type: "video-remote";
+  screen: string;
+  action: RemoteAsk;
+}
+export type ClientMsg = HelloMsg | ScreensMsg | StateMsg | PreviewMsg | VideoReplyMsg | VideoStateMsg | VideoRemoteMsg;
 
 // ---------------------------------------------------------------- box → client
 
@@ -125,13 +164,16 @@ export interface ShowMsg {
  * `poster` carry the media server's key: never log them, store them or report them.
  */
 export type VideoMsg =
-  | { type: "video"; screen: string; requestId: string; op: "play"; url: string; title: string; mime?: string; poster?: string; startAt?: number }
+  | { type: "video"; screen: string; requestId: string; op: "play"; url: string; title: string; mime?: string; poster?: string; startAt?: number; tracks?: Tracks }
   | { type: "video"; screen: string; requestId: string; op: "pause" | "resume" | "stop" | "status" }
+  | { type: "video"; screen: string; requestId: string; op: "audio"; id: string }
+  | { type: "video"; screen: string; requestId: string; op: "subtitle"; id: string | null }
   | { type: "video"; screen: string; requestId: string; op: "seek"; position: number };
 export type BoxMsg =
   | WelcomeMsg
   | ShowMsg
   | VideoMsg
+  | { type: "key"; screen: string; key: string }
   | { type: "off"; screen: string }
   | { type: "reload"; screen: string }
   | { type: "identify"; screen: string; label: string }

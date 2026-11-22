@@ -16,11 +16,15 @@ if (!pipe) process.exit(2);
 const startArg = Number(process.argv.find((a) => a.startsWith("--start="))?.slice(8) ?? 0);
 
 const observed = new Map<string, number>();
-const props: Record<string, unknown> = { pause: false, "time-pos": null, duration: null, "paused-for-cache": false, "eof-reached": false, "idle-active": true };
-let client: Socket | undefined;
+const props: Record<string, unknown> = { pause: false, "time-pos": null, duration: null, "paused-for-cache": false, "eof-reached": false, "idle-active": true, aid: "auto", sid: "auto", volume: 100, mute: false };
+const binds = new Map<string, string>();
+const clients = new Set<Socket>();
 let ticker: NodeJS.Timeout | undefined;
 
-const send = (o: unknown) => client?.write(`${JSON.stringify(o)}\n`);
+// Events go to every client (like mpv); replies to the one that asked.
+const send = (o: unknown) => {
+  for (const c of clients) c.write(`${JSON.stringify(o)}\n`);
+};
 function set(name: string, value: unknown) {
   props[name] = value;
   const id = observed.get(name);
@@ -49,7 +53,9 @@ function play(url: string) {
 }
 
 const server = createServer((sock) => {
-  client = sock;
+  clients.add(sock);
+  sock.on("close", () => clients.delete(sock));
+  sock.on("error", () => clients.delete(sock));
   sock.setEncoding("utf8");
   let buf = "";
   sock.on("data", (d: string) => {
@@ -58,11 +64,36 @@ const server = createServer((sock) => {
     while ((nl = buf.indexOf("\n")) >= 0) {
       const line = buf.slice(0, nl);
       buf = buf.slice(nl + 1);
-      const { command, request_id } = JSON.parse(line) as { command: unknown[]; request_id: number };
+      const { command, request_id } = JSON.parse(line) as { command: unknown[] | Record<string, unknown>; request_id: number };
       log(`CMD ${JSON.stringify(command)}`);
-      const ok = (data?: unknown) => send({ request_id, error: "success", ...(data !== undefined ? { data } : {}) });
+      const reply = (o: Record<string, unknown>) => sock.write(`${JSON.stringify({ request_id, ...o })}\n`);
+      const ok = (data?: unknown) => reply({ error: "success", ...(data !== undefined ? { data } : {}) });
+      if (!Array.isArray(command)) {
+        // Named arguments ({ name: "osd-overlay", ... }).
+        if (command.name === "osd-overlay") ok();
+        else reply({ error: "invalid parameter" });
+        continue;
+      }
       const [name, ...args] = command as [string, ...unknown[]];
-      if (name === "observe_property") {
+      if (name === "keybind") {
+        binds.set(String(args[0]), String(args[1]));
+        ok();
+      } else if (name === "keypress") {
+        // Like a key pressed in the player window: bound script-messages reach every client.
+        const m = /^script-message (\S+) (\S+)$/.exec(binds.get(String(args[0])) ?? "");
+        if (m) send({ event: "client-message", args: [m[1], m[2]] });
+        ok();
+      } else if (name === "sub-add") {
+        if (String(args[0]).includes("missing")) reply({ error: "loading failed" });
+        else ok();
+      } else if (name === "show-text" || name === "ignore") ok();
+      else if (name === "cycle") {
+        set(String(args[0]), !props[String(args[0])]);
+        ok();
+      } else if (name === "add") {
+        set(String(args[0]), Number(props[String(args[0])]) + Number(args[1]));
+        ok();
+      } else if (name === "observe_property") {
         observed.set(args[1] as string, args[0] as number);
         ok();
         send({ event: "property-change", id: args[0], name: args[1], data: props[args[1] as string] });
@@ -74,14 +105,15 @@ const server = createServer((sock) => {
         ok();
         play(args[0] as string);
       } else if (name === "seek") {
-        set("time-pos", args[0]);
+        const now = Number(props["time-pos"] ?? 0);
+        set("time-pos", args[1] === "relative" ? Math.max(0, now + Number(args[0])) : args[0]);
         send({ event: "seek" });
         send({ event: "playback-restart" });
         ok();
       } else if (name === "quit") {
         ok();
         setTimeout(() => process.exit(0), 20);
-      } else send({ request_id, error: "invalid parameter" });
+      } else reply({ error: "invalid parameter" });
     }
   });
 });
