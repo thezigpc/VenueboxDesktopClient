@@ -1,7 +1,7 @@
 {
   "name": "venuebox-desktop-client",
   "productName": "Venuebox",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Turns a PC into a Venuebox display player: one TV per screen, paired with a Bar Games box.",
   "private": true,
   "main": "dist/src/main.js",
@@ -11,9 +11,10 @@
     "test": "tsc -p . && node --test \"dist/test/**/*.test.js\"",
     "start": "tsc -p . && electron .",
     "start:windowed": "tsc -p . && electron . --windowed",
-    "dist:win": "tsc -p . && electron-builder --win",
+    "dist:win": "node scripts/fetch-mpv.mjs && tsc -p . && electron-builder --win",
     "dist:linux": "tsc -p . && electron-builder --linux",
-    "dist:mac": "tsc -p . && electron-builder --mac"
+    "dist:mac": "tsc -p . && electron-builder --mac",
+    "fetch-mpv": "node scripts/fetch-mpv.mjs"
   },
   "dependencies": {
     "electron-updater": "6.8.11",
@@ -38,7 +39,16 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "extraResources": [
+        {
+          "from": "vendor/mpv/win32-x64",
+          "to": "mpv",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ]
     },
     "nsis": {
       "artifactName": "Venuebox-Setup-${version}.exe",
@@ -62,6 +72,12 @@
         "provider": "github",
         "owner": "thezigpc",
         "repo": "VenueboxDesktopClient"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "THIRD-PARTY-NOTICES.md",
+        "to": "THIRD-PARTY-NOTICES.md"
       }
     ]
   }

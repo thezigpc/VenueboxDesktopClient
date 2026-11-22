@@ -59,12 +59,24 @@ Flags and environment:
 |---|---|
 | `src/box-client.ts` | Pairing (`/pair/start`, poll `/pair/status`), WebSocket `/client`, `hello`/`welcome`, reconnect forever with backoff; 4401/4403 → clear token and pair again; 4409 → retry in 5 min. No Electron imports. |
 | `src/discovery.ts` | DNS-SD browse for `_venuebox._tcp.local` (legacy unicast from an ephemeral port per LAN interface; no dependencies). The box is remembered by its TXT `id`: when the saved address stops answering, the client re-browses and follows the same id to its new address, keeping the pairing. |
+| `src/video.ts`, `src/mpv-ipc.ts`, `src/video-caps.ts` | The video player: one mpv per screen while it plays, driven over JSON IPC; every `video` op gets one `video-reply`, `video-state` when it changes by itself (10 s progress while playing). What `hello.video` declares. Tested with a fake mpv (`test/fake-mpv.ts`). |
 | `src/screens.ts` | One frameless, full-screen, always-on-top window per display; `show`/`off`/`reload`/`identify`/`preview`; reports `state`; retries failed loads, restarts crashed or hung pages; hotplug. |
 | `src/store.ts` | `config.json` + `token.dat` (Electron `safeStorage`: DPAPI / Keychain / keyring) in the app's user-data folder. |
 | `src/main.ts` | Wires it up: single instance, no display sleep, autoplay, tray, settings window (Ctrl+Alt+Shift+V), start at login (on by default for installed builds). |
 
 Screens with nothing to show display the pairing code / connection status, or black once
 connected.
+
+**Video** (box 0.28.0+): the box can hand a screen a video link (the Movies app, from the
+venue's Jellyfin). Venuebox plays it with a bundled **mpv**, full screen on that screen's
+monitor over the page, streaming straight from the media server; when it ends or stops, mpv
+closes and the page is back. `hello.video` declares H.264 always, HEVC/AV1/VP9 and 4K only
+with hardware decoding (Chromium's `mediaCapabilities`), and `ranges` `sdr` (plus `hdr10`,
+`hlg` when a monitor is in Windows HDR mode). The link carries the server's key: it reaches
+mpv only over its IPC pipe, never its command line, logs or messages. mpv is fetched at build
+time (`npm run fetch-mpv`, pinned and checksummed in `scripts/fetch-mpv.mjs`, into `vendor/`)
+and ships with its licenses; see `THIRD-PARTY-NOTICES.md`. `VENUEBOX_MPV=<path>` overrides it;
+on Linux/macOS an mpv on `PATH` is used.
 
 **Touch mode** (Settings, off by default) is for touchscreens many people use. Pages get
 `window.__BARGAMES_SHARED_SCREEN__ = true` before their scripts run (GameKit: kiosk games

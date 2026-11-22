@@ -25,6 +25,28 @@ export interface Screen {
 
 export type Delivery = "native-url" | "hls";
 
+/**
+ * Box 0.28.0: what the client's video player plays, lower-case Jellyfin names: containers
+ * "mp4" "mkv" "mov" "webm" "ts" "hls"; video "h264" "hevc" "av1" "vp9"; audio "aac" "mp3"
+ * "ac3" "eac3" "dts" "truehd" "opus" "flac". Apps pick direct play or a transcode from it.
+ */
+export interface VideoCaps {
+  containers: string[];
+  video: string[];
+  audio: string[];
+  /** Tallest picture it plays (2160 for 4K). */
+  maxHeight?: number;
+  /** It can jump to a position (and start part-way). */
+  seek: boolean;
+  /** Surround audio passed through to the TV/receiver. */
+  passthrough?: string[];
+  /**
+   * Box 0.28.1: picture ranges the device shows correctly, end to end (decoder, display mode
+   * and panel): "sdr" "hdr10" "hdr10plus" "hlg" "dovi". Absent: apps guess (SDR to be safe).
+   */
+  ranges?: string[];
+}
+
 // ---------------------------------------------------------------- client → box
 
 export interface HelloMsg {
@@ -36,6 +58,8 @@ export interface HelloMsg {
   appVersion?: string;
   screens: Screen[];
   deliveries: Delivery[];
+  /** Box 0.28.0: present when the client plays video links itself. */
+  video?: VideoCaps;
 }
 export interface ScreensMsg {
   type: "screens";
@@ -55,7 +79,30 @@ export interface PreviewMsg {
   jpeg?: string;
   error?: string;
 }
-export type ClientMsg = HelloMsg | ScreensMsg | StateMsg | PreviewMsg;
+/** Box 0.28.0: the answer to a "video" message, same requestId. Never put the link in `message`. */
+export interface VideoReplyMsg {
+  type: "video-reply";
+  requestId: string;
+  ok: boolean;
+  /** unsupported | not-allowed | error */
+  reason?: "unsupported" | "not-allowed" | "error";
+  message?: string;
+  /** With op "status" (and allowed with any op): the player's state now. */
+  state?: VideoState;
+  position?: number;
+  duration?: number;
+}
+export type VideoState = "loading" | "playing" | "paused" | "stopped" | "error";
+/** Box 0.28.0: the player changed by itself (started, ended, failed, keyboard/remote). */
+export interface VideoStateMsg {
+  type: "video-state";
+  screen: string;
+  state: VideoState;
+  position?: number;
+  duration?: number;
+  message?: string;
+}
+export type ClientMsg = HelloMsg | ScreensMsg | StateMsg | PreviewMsg | VideoReplyMsg | VideoStateMsg;
 
 // ---------------------------------------------------------------- box → client
 
@@ -73,9 +120,18 @@ export interface ShowMsg {
   kind: Delivery;
   title?: string;
 }
+/**
+ * Box 0.28.0: play a video link full screen over the page (play), or control it. `url` and
+ * `poster` carry the media server's key: never log them, store them or report them.
+ */
+export type VideoMsg =
+  | { type: "video"; screen: string; requestId: string; op: "play"; url: string; title: string; mime?: string; poster?: string; startAt?: number }
+  | { type: "video"; screen: string; requestId: string; op: "pause" | "resume" | "stop" | "status" }
+  | { type: "video"; screen: string; requestId: string; op: "seek"; position: number };
 export type BoxMsg =
   | WelcomeMsg
   | ShowMsg
+  | VideoMsg
   | { type: "off"; screen: string }
   | { type: "reload"; screen: string }
   | { type: "identify"; screen: string; label: string }

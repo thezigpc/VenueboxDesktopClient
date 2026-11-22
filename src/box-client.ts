@@ -2,7 +2,7 @@
 // forever. No Electron imports here, so it runs (and is tested) in plain Node.
 
 import WebSocket from "ws";
-import { CLIENT_PROTOCOL, CLOSE, DEFAULT_PORT, type BoxMsg, type ClientMsg, type PairStartReply, type PairStatusReply, type Screen } from "./protocol";
+import { CLIENT_PROTOCOL, CLOSE, DEFAULT_PORT, type BoxMsg, type ClientMsg, type PairStartReply, type PairStatusReply, type Screen, type VideoCaps } from "./protocol";
 
 export type ClientStatus =
   | { phase: "no-box" }
@@ -24,6 +24,8 @@ export interface BoxClientDeps {
   token: TokenStore;
   device: () => { name: string; platform: string; model?: string; appVersion?: string };
   screens: () => Screen[];
+  /** Box 0.28.0: what this client's video player plays (sent in hello); undefined = none. */
+  video?: () => VideoCaps | undefined;
   onStatus: (s: ClientStatus) => void;
   onMessage: (m: BoxMsg) => void;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
@@ -338,6 +340,7 @@ export class BoxClient {
       };
       ws.on("open", () => {
         heard();
+        const video = this.d.video?.();
         ws.send(
           JSON.stringify({
             type: "hello",
@@ -346,6 +349,7 @@ export class BoxClient {
             ...this.d.device(),
             screens: this.d.screens(),
             deliveries: ["native-url"],
+            ...(video ? { video } : {}),
           } satisfies ClientMsg),
         );
       });

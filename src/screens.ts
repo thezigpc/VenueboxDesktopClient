@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { Screen, StateMsg } from "./protocol";
 import { checkShowUrl, navigationAllowed } from "./urls";
 import { viewportFor, type ViewportInfo } from "./viewport";
+import { isHdrColorSpace } from "./video-caps";
 
 /** What windows that aren't showing a game display. Undefined → plain black. */
 export interface StatusView {
@@ -276,6 +277,40 @@ export class ScreenManager {
     tv.win.setFullScreen(true);
     tv.win.setAlwaysOnTop(true, "screen-saver");
     this.applyZoom(tv);
+  }
+
+  // ---------------------------------------------------------------- video player (box 0.28.0)
+
+  /** The URL the box last showed on a screen (the page under a video). */
+  currentUrl(id: string): string | undefined {
+    return this.tvs.get(id)?.url;
+  }
+
+  /** Where mpv goes for a screen: its monitor in physical pixels (mpv --geometry). */
+  videoRect(id: string): { x: number; y: number; w: number; h: number; fs: boolean; hdr: boolean } | undefined {
+    const tv = this.tvs.get(id);
+    if (!tv || tv.win.isDestroyed()) return undefined;
+    // Windowed development: a window over that screen's window instead of full screen.
+    const dip = this.o.windowed ? tv.win.getContentBounds() : tv.display.bounds;
+    const px =
+      process.platform === "win32"
+        ? screen.dipToScreenRect(null, dip)
+        : { x: Math.round(dip.x * tv.display.scaleFactor), y: Math.round(dip.y * tv.display.scaleFactor), width: Math.round(dip.width * tv.display.scaleFactor), height: Math.round(dip.height * tv.display.scaleFactor) };
+    return { x: px.x, y: px.y, w: px.width, h: px.height, fs: !this.o.windowed, hdr: isHdrColorSpace(tv.display.colorSpace) };
+  }
+
+  /** The video player covers this screen (on) or closed (off): step the TV window aside / back. */
+  coverForVideo(id: string, on: boolean) {
+    const tv = this.tvs.get(id);
+    if (!tv || tv.win.isDestroyed() || this.o.windowed) return;
+    if (on) {
+      // mpv is --ontop; ours must not fight it for the top. The page keeps running underneath.
+      tv.win.setAlwaysOnTop(false);
+    } else {
+      tv.win.setAlwaysOnTop(true, "screen-saver");
+      tv.win.moveTop();
+      tv.win.focus();
+    }
   }
 
   /** Lays pages out at 1920x1080 CSS px, rendered at the panel's own pixels (src/viewport.ts). */

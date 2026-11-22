@@ -5,16 +5,18 @@
 //        --box=<address> (sets the box address, e.g. for unattended installs).
 
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, powerSaveBlocker, screen, Tray } from "electron";
-import { appendFileSync, renameSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, renameSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { getStartAtLogin, setStartAtLogin } from "./autostart";
 import { BoxClient, checkBox, normalizeBox, type ClientStatus } from "./box-client";
 import { browse, reachable, relocate, type FoundBox } from "./discovery";
-import type { BoxMsg } from "./protocol";
+import type { BoxMsg, VideoCaps } from "./protocol";
 import { ScreenManager, type StatusView } from "./screens";
 import { Store } from "./store";
 import { Updater, type UpdateState } from "./updater";
+import { VideoPlayers } from "./video";
+import { isHdrColorSpace, PROBE_SCRIPT, videoCaps, type DecodeProbe } from "./video-caps";
 
 const STATIC = join(__dirname, "..", "..", "static");
 const windowed = process.argv.includes("--windowed");
@@ -59,6 +61,8 @@ let client: BoxClient;
 let settingsWin: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let updater: Updater;
+let video: VideoPlayers;
+let caps: VideoCaps | undefined;
 
 const platformName = () => ({ win32: "windows", darwin: "macos", linux: "linux" })[process.platform as string] ?? process.platform;
 
@@ -82,6 +86,7 @@ async function start() {
     token: store,
     device: () => ({ name: store.config.name?.trim() || hostname(), platform: platformName(), model: hostname(), appVersion: app.getVersion() }),
     screens: () => screens.list(),
+    video: () => caps,
     onStatus,
     onMessage,
     log,
@@ -96,6 +101,15 @@ async function start() {
   });
 
   screens.sync();
+  video = new VideoPlayers({
+    mpvPath: findMpv(),
+    send: (m) => client.send(m),
+    log,
+    geometry: (s) => screens.videoRect(s),
+    covering: (s, on) => screens.coverForVideo(s, on),
+  });
+  caps = video.available ? await probeVideoCaps() : undefined;
+  log("video player", video.available ? { caps } : { available: false });
   let pending: NodeJS.Timeout | undefined;
   const displaysChanged = () => {
     if (pending) clearTimeout(pending);
@@ -103,6 +117,9 @@ async function start() {
     pending = setTimeout(() => {
       if (screens.sync()) {
         log("screens changed", { screens: screens.list() });
+        // A screen that's gone takes its video player with it.
+        const ids = new Set(screens.list().map((x) => x.id));
+        for (const id of video.playingScreens()) if (!ids.has(id)) void video.close(id, "screen unplugged");
         client.sendScreens();
         pushState();
       }
@@ -130,6 +147,38 @@ async function start() {
   client.restart();
   if (!normalizeBox(store.config.box)) void autoFind();
   if (windowed) openSettings();
+}
+
+// ---------------------------------------------------------------- video (box 0.28.0)
+
+/** The bundled mpv (resources/mpv), the dev copy (vendor/mpv), or mpv on PATH (Linux/macOS). */
+function findMpv(): string | undefined {
+  const exe = process.platform === "win32" ? "mpv.exe" : "mpv";
+  const candidates = [
+    process.env.VENUEBOX_MPV,
+    app.isPackaged ? join(process.resourcesPath, "mpv", exe) : join(app.getAppPath(), "vendor", "mpv", `${process.platform}-${process.arch}`, exe),
+    ...(process.platform === "win32" ? [] : (process.env.PATH ?? "").split(":").map((d) => join(d, exe))),
+  ];
+  return candidates.find((c): c is string => Boolean(c) && existsSync(c!));
+}
+
+/** What to declare in hello.video: this PC's hardware decoders, via Chromium (src/video-caps.ts). */
+async function probeVideoCaps(): Promise<VideoCaps> {
+  const tallest = Math.max(0, ...screens.list().map((s) => s.h));
+  let probe: DecodeProbe = {};
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
+  try {
+    await win.loadURL("data:text/html,<title>probe</title>");
+    probe = (await Promise.race([win.webContents.executeJavaScript(PROBE_SCRIPT), new Promise((r) => setTimeout(() => r({}), 5000))])) as DecodeProbe;
+  } catch (err) {
+    log("video: decoder probe failed (declaring H.264 only)", { error: String(err) });
+  } finally {
+    win.destroy();
+  }
+  const hw = Object.entries(probe).filter(([, v]) => v?.powerEfficient).map(([k]) => k);
+  const hdr = screen.getAllDisplays().some((d) => isHdrColorSpace(d.colorSpace));
+  log("video: hardware decoders", { hw, tallestScreenPx: tallest, hdrMonitor: hdr });
+  return videoCaps(probe, tallest, hdr);
 }
 
 // ---------------------------------------------------------------- discovery
@@ -205,6 +254,7 @@ async function learnBoxId() {
 // Screen windows come and go with displays; the app runs until "Quit" in settings/tray.
 app.on("window-all-closed", () => {});
 app.on("before-quit", () => {
+  video?.killAll();
   client?.stop();
   screens?.closeAll();
 });
@@ -219,7 +269,19 @@ function onMessage(m: BoxMsg) {
       screens.setLabels(Object.fromEntries(m.screens.map((s) => [s.id, s.label])));
       screens.reportAll();
       break;
+    case "video":
+      void video.handle(m);
+      break;
     case "show":
+      // A new page closes the video player. The same page again (the box re-sends what each
+      // screen shows after a reconnect) leaves the movie playing over it.
+      if (video.isPlaying(m.screen)) {
+        if (m.url === screens.currentUrl(m.screen)) {
+          log("show: same page as under the video, kept the video playing", { screen: m.screen });
+          break;
+        }
+        void video.close(m.screen, "new show");
+      }
       if (m.kind !== "native-url") {
         client.send({ type: "state", screen: m.screen, showing: m.url, status: "error", detail: `this app can't play ${m.kind}` });
         break;
@@ -227,6 +289,7 @@ function onMessage(m: BoxMsg) {
       screens.show(m.screen, m.url, m.title);
       break;
     case "off":
+      void video.close(m.screen, "off");
       screens.off(m.screen);
       break;
     case "reload":
